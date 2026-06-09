@@ -13,10 +13,10 @@ interface ConfirmOrderProps {
 }
 
 export function ConfirmOrder({ cart, onConfirm, onAllConfirmed }: ConfirmOrderProps) {
-  const verticalsToConfirm = [];
-  if (cart?.instamart?.items?.length > 0) verticalsToConfirm.push("instamart");
-  if (cart?.food?.items?.length > 0) verticalsToConfirm.push("food");
-  if (cart?.dineout?.slots) verticalsToConfirm.push("dineout");
+  const verticalsToConfirm: string[] = [];
+  if ((cart?.instamart?.items?.length || 0) > 0) verticalsToConfirm.push("instamart");
+  if ((cart?.food?.items?.length || 0) > 0) verticalsToConfirm.push("food");
+  if ((cart?.dineout_slots?.length || 0) > 0) verticalsToConfirm.push("dineout");
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -56,18 +56,18 @@ export function ConfirmOrder({ cart, onConfirm, onAllConfirmed }: ConfirmOrderPr
           title: "Confirm Instamart Groceries",
           color: "bg-instamart-green",
           text: "text-instamart-green",
-          items: cart.instamart.items,
-          total: cart.instamart.total,
-          warnings: cart.instamart.total < 99 ? "Total below ₹99 minimum." : null,
+          items: cart.instamart?.items || [],
+          total: cart.instamart?.subtotal || 0,
+          warnings: (cart.instamart?.subtotal || 0) < 99 ? "Total below ₹99 minimum." : null,
         };
       case "food":
         return {
           title: "Confirm Food Delivery",
           color: "bg-swiggy-orange",
           text: "text-swiggy-orange",
-          items: cart.food.items,
-          total: cart.food.total,
-          warnings: cart.food.total > 1000 ? "Cart limit (₹1000) exceeded." : `₹${cart.food.total} used of ₹1000 limit.`,
+          items: cart.food?.items || [],
+          total: cart.food?.subtotal || 0,
+          warnings: (cart.food?.subtotal || 0) > 1000 ? "Cart limit (₹1000) exceeded." : `₹${cart.food?.subtotal || 0} used of ₹1000 limit.`,
         };
       case "dineout":
         return {

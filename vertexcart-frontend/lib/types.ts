@@ -21,44 +21,48 @@ export interface TurnResponse {
   verticals_active: string[];
   cart_summary: Record<string, unknown>;
   requires_confirmation: boolean;
+  requires_clarification: boolean;
+  clarification_prompt?: string;
 }
 
-// Cart Item Models (Extrapolated from PRD and common MCP structures)
+// Cart Item Models (Extrapolated from Swiggy tool response structure)
 export interface CartItem {
-  id?: string;
   itemId?: string;
   spinId?: string;
   name: string;
   price: number;
   quantity: number;
-  image_url?: string;
+}
+
+export interface FoodCart {
+  items: CartItem[];
+  subtotal: number;
+  restaurantId?: string;
+  restaurantName?: string;
+  status?: string;
+  error?: string;
+}
+
+export interface IMCart {
+  items: CartItem[];
+  subtotal: number;
+  status?: string;
+  error?: string;
 }
 
 export interface CartState {
-  food: {
-    items: CartItem[];
-    total: number;
-    restaurantId?: string;
-    restaurantName?: string;
-    eta?: string;
-  };
-  instamart: {
-    items: CartItem[];
-    total: number;
-    eta?: string;
-  };
-  dineout: {
-    slots?: Record<string, unknown>[];
-    restaurantName?: string;
-    reservationTime?: string;
-  }
+  food?: FoodCart;
+  instamart?: IMCart;
+  dineout_restaurants?: unknown[];
+  dineout_slots?: unknown[];
 }
 
 // Matches backend model: app/models/order.py
 export interface OrderReference {
-  id: string;
+  order_id: string;
   vertical: "food" | "instamart" | "dineout";
-  swiggy_order_id: string;
+  placed_at: string;
   status: string;
   eta?: string;
+  tracking?: unknown;
 }

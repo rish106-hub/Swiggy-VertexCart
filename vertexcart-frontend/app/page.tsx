@@ -47,9 +47,21 @@ export default function Home() {
       const parsedIntent = await api.parseIntent(text, userId);
       setIntent(parsedIntent);
       
+      // If immediate clarification needed from parser
+      if (parsedIntent.requires_clarification) {
+        setStep("input");
+        return;
+      }
+
       // 3. Process Turn (this hits the MCP tools)
       const turnRes = await api.sendTurn(currentSessionId, text);
       setAgentResponse(turnRes);
+
+      if (turnRes.requires_clarification) {
+        setStep("input");
+        // We can show the clarification prompt as placeholder or message
+        return;
+      }
 
       // 4. Fetch live cart state
       const liveCart = await api.getCart(currentSessionId);
@@ -78,6 +90,11 @@ export default function Home() {
       
       const turnRes = await api.sendTurn(sessionId, text);
       setAgentResponse(turnRes);
+
+      if (turnRes.requires_clarification) {
+        setStep("input");
+        return;
+      }
 
       const liveCart = await api.getCart(sessionId);
       setCart(liveCart);

@@ -7,7 +7,7 @@ interface CartColumnProps {
   vertical: "instamart" | "food" | "dineout";
   title: string;
   items: CartItem[];
-  total: number;
+  total: number; // mapped from subtotal in parent
   eta?: string;
   restaurantName?: string;
   colorClass: string;

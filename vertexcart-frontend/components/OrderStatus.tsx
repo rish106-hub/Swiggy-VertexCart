@@ -77,7 +77,7 @@ export function OrderStatus({ sessionId }: OrderStatusProps) {
         <div className="space-y-4">
           {orders.map((order, i) => (
             <motion.div
-              key={order.id}
+              key={`${order.order_id}-${order.vertical}`}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
@@ -88,7 +88,7 @@ export function OrderStatus({ sessionId }: OrderStatusProps) {
               
               <div className="pl-4">
                 <h3 className="text-white font-semibold capitalize text-lg mb-1">{order.vertical} Order</h3>
-                <p className="text-text-secondary text-sm">ID: {order.swiggy_order_id}</p>
+                <p className="text-text-secondary text-sm">ID: {order.order_id}</p>
               </div>
 
               <div className="pl-4 md:pl-0 flex items-center gap-4">

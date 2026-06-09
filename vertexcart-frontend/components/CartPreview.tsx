@@ -17,8 +17,8 @@ interface CartPreviewProps {
 }
 
 export function CartPreview({ cart, intent, agentResponse, onCorrect, onConfirmStart }: CartPreviewProps) {
-  const hasInstamart = cart?.instamart?.items?.length > 0;
-  const hasFood = cart?.food?.items?.length > 0;
+  const hasInstamart = (cart?.instamart?.items?.length || 0) > 0;
+  const hasFood = (cart?.food?.items?.length || 0) > 0;
 
   return (
     <div className="min-h-screen pb-24 px-4 md:px-8 max-w-7xl mx-auto flex flex-col md:flex-row gap-8 pt-8 relative">
@@ -38,13 +38,14 @@ export function CartPreview({ cart, intent, agentResponse, onCorrect, onConfirmS
         </motion.div>
 
         <div className="flex flex-col lg:flex-row gap-6">
-          {hasInstamart && (
+          {/* Instamart Column */}
+          {hasInstamart && cart.instamart && (
             <CartColumn
               vertical="instamart"
               title="Instamart"
               items={cart.instamart.items}
-              total={cart.instamart.total}
-              eta={cart.instamart.eta}
+              total={cart.instamart.subtotal}
+              eta={cart.instamart.status}
               colorClass="bg-instamart-green"
               borderColorClass="border-instamart-green/30"
               accentBgClass="bg-instamart-green/10"
@@ -52,13 +53,14 @@ export function CartPreview({ cart, intent, agentResponse, onCorrect, onConfirmS
             />
           )}
 
-          {hasFood && (
+          {/* Food Column */}
+          {hasFood && cart.food && (
             <CartColumn
               vertical="food"
               title="Food Delivery"
               items={cart.food.items}
-              total={cart.food.total}
-              eta={cart.food.eta}
+              total={cart.food.subtotal}
+              eta={cart.food.status}
               restaurantName={cart.food.restaurantName}
               colorClass="bg-swiggy-orange"
               borderColorClass="border-swiggy-orange/30"
