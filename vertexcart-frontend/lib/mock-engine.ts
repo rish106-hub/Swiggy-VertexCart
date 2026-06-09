@@ -16,6 +16,8 @@ interface IMEntry   { items: CartItem[] }
 
 const FOOD_MAP: Record<string, FoodEntry> = {
   biryani:      { restaurant: "Behrouz Biryani",       items: [{ name: "Chicken Dum Biryani", price: 349, quantity: 1 }, { name: "Raita", price: 49, quantity: 1 }] },
+  biriyani:     { restaurant: "Behrouz Biryani",       items: [{ name: "Chicken Dum Biryani", price: 349, quantity: 1 }, { name: "Raita", price: 49, quantity: 1 }] },
+  biriyanni:    { restaurant: "Behrouz Biryani",       items: [{ name: "Chicken Dum Biryani", price: 349, quantity: 1 }, { name: "Raita", price: 49, quantity: 1 }] },
   pizza:        { restaurant: "La Pino'z Pizza",       items: [{ name: "Margherita Pizza (Medium)", price: 299, quantity: 1 }, { name: "Garlic Bread", price: 99, quantity: 1 }] },
   burger:       { restaurant: "Burger Singh",          items: [{ name: "Classic Smash Burger", price: 229, quantity: 1 }, { name: "Loaded Fries", price: 149, quantity: 1 }] },
   sushi:        { restaurant: "Sushi Samba",           items: [{ name: "Sushi Platter (8 pcs)", price: 499, quantity: 1 }, { name: "Miso Soup", price: 129, quantity: 1 }] },
@@ -120,11 +122,31 @@ const DINEOUT_RESTAURANTS = [
 
 // ── Tokenizer ──────────────────────────────────────────────────────────────────
 
+// Normalise common spelling variants → canonical key
+const SPELLING_ALIASES: Record<string, string> = {
+  biriyani: "biryani", biriyanni: "biryani", biryanni: "biryani",
+  briyani: "biryani", biriany: "biryani",
+  pizzas: "pizza", burgher: "burger", burgers: "burger",
+  noodels: "noodles", noodls: "noodles",
+  shawerma: "shawarma", shawurma: "shawarma",
+  sandwitch: "sandwich", sandwhich: "sandwich",
+  icecream: "ice cream", "ice-cream": "ice cream",
+  momos: "momos", momo: "momos",
+  coffe: "coffee", cofee: "coffee",
+  deserts: "dessert", desserts: "dessert",
+  choclate: "chocolate",
+};
+
+function normalizeToken(token: string): string {
+  return SPELLING_ALIASES[token] ?? token;
+}
+
 function tokenize(text: string): string[] {
   return text.toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter(t => t.length > 0);
+    .filter(t => t.length > 0)
+    .map(normalizeToken);
 }
 
 // Match multi-word phrases first, then single words
@@ -134,8 +156,9 @@ function extractMatches(text: string): {
   hasDineout: boolean;
   hasCookSignal: boolean;
 } {
-  const lower = text.toLowerCase();
   const tokens = tokenize(text);
+  // Rebuild normalised lower string for phrase matching
+  const lower = tokens.join(" ");
 
   const foodKeys: string[] = [];
   const imKeys: string[] = [];
@@ -154,14 +177,28 @@ function extractMatches(text: string): {
     }
   }
 
-  // Single-word matches — skip tokens already covered by a matched phrase
+  // Single-word matches — in token order (preserves user's stated intent priority)
+  // Skip tokens already covered by a matched phrase
+  // GENERIC_FOOD_MODIFIERS are words that describe protein type but aren't a dish name.
+  // They only match if no other specific dish key matched.
+  const GENERIC_FOOD_MODIFIERS = new Set(["chicken", "beef", "lamb", "prawn", "egg", "veg", "fish"]);
+  const specificFoodTokens: string[] = [];
+  const modifierFoodTokens: string[] = [];
+
   for (const token of tokens) {
-    // Skip if this token is part of a matched phrase
     const inPhrase = Array.from(matchedPhrases).some(p => p.includes(token));
     if (inPhrase) continue;
 
-    if (FOOD_MAP[token] && !foodKeys.includes(token))           foodKeys.push(token);
-    if (INSTAMART_MAP[token] && !imKeys.includes(token))        imKeys.push(token);
+    if (FOOD_MAP[token]) {
+      if (GENERIC_FOOD_MODIFIERS.has(token)) modifierFoodTokens.push(token);
+      else if (!specificFoodTokens.includes(token)) specificFoodTokens.push(token);
+    }
+    if (INSTAMART_MAP[token] && !imKeys.includes(token)) imKeys.push(token);
+  }
+
+  // Use specific dish keys; fall back to modifiers only if nothing specific matched
+  for (const k of (specificFoodTokens.length > 0 ? specificFoodTokens : modifierFoodTokens)) {
+    if (!foodKeys.includes(k)) foodKeys.push(k);
   }
 
   const hasCookSignal = tokens.some(t => COOK_SIGNALS.has(t));
