@@ -117,6 +117,10 @@ async def _store_order_reference(
         )
 
 
+# ── Session Locks (Idempotency Guards) ────────────────────────────────────────
+
+_active_placements: set[str] = set()
+
 # ── Food order placement ──────────────────────────────────────────────────────
 
 async def place_food_order(session_id: uuid.UUID, token: str = "") -> ConfirmResponse:
@@ -131,93 +135,101 @@ async def place_food_order(session_id: uuid.UUID, token: str = "") -> ConfirmRes
     On domain failure → surface immediately, no retry.
     PRD ref: Section 8.3 (Module 5), Section 7.1 (Order Placement — sequential)
     """
-    # ── Pre-condition: read live cart, verify cap ─────────────────────────
-    cart = await mcp_client.get_food_cart(token=token)
+    lock_key = f"{session_id}_food"
+    if lock_key in _active_placements:
+        raise OrderPlacementError("food", "Order placement already in progress.")
+    _active_placements.add(lock_key)
 
-    subtotal = cart.get("subtotal", 0)
-    if subtotal > _FOOD_CART_CAP_INR:
-        raise OrderPlacementError(
-            "food",
-            f"Cart total ₹{subtotal} exceeds ₹{_FOOD_CART_CAP_INR} cap. "
-            "Remove items before placing order.",
-        )
+    try:
+        # ── Pre-condition: read live cart, verify cap ─────────────────────────
+        cart = await mcp_client.get_food_cart(token=token)
 
-    items = cart.get("items", [])
-    if not items:
-        raise OrderPlacementError("food", "Food cart is empty — nothing to order.")
-
-    # ── Placement with check-then-retry ───────────────────────────────────
-    wall_start = asyncio.get_event_loop().time()
-
-    for attempt in range(MAX_RETRIES + 1):
-        # Hard wall-clock guard
-        if asyncio.get_event_loop().time() - wall_start > _WALL_CLOCK_CAP_SECONDS:
-            break
-
-        try:
-            result = await mcp_client.place_food_order(
-                payment_method="COD", token=token
-            )
-            order_id = result.get("orderId", "")
-            await _store_order_reference(session_id, "food", order_id)
-            logger.info("Food order placed: %s (session %s)", order_id, session_id)
-            return ConfirmResponse(
-                order_id=order_id,
-                vertical="food",  # type: ignore[arg-type]
-                eta=result.get("eta"),
-                status=result.get("status", "placed"),
+        subtotal = cart.get("subtotal", 0)
+        if subtotal > _FOOD_CART_CAP_INR:
+            raise OrderPlacementError(
+                "food",
+                f"Cart total ₹{subtotal} exceeds ₹{_FOOD_CART_CAP_INR} cap. "
+                "Remove items before placing order.",
             )
 
-        except MCPToolError as exc:
-            # Domain failure (success=false) — do NOT retry, surface immediately
-            if not exc.classification.is_retryable:
-                logger.warning(
-                    "Food order domain failure (no retry): %s", exc.classification.bucket
+        items = cart.get("items", [])
+        if not items:
+            raise OrderPlacementError("food", "Food cart is empty — nothing to order.")
+
+        # ── Placement with check-then-retry ───────────────────────────────────
+        wall_start = asyncio.get_event_loop().time()
+
+        for attempt in range(MAX_RETRIES + 1):
+            # Hard wall-clock guard
+            if asyncio.get_event_loop().time() - wall_start > _WALL_CLOCK_CAP_SECONDS:
+                break
+
+            try:
+                result = await mcp_client.place_food_order(
+                    payment_method="COD", token=token
                 )
-                raise OrderPlacementError("food", str(exc)) from exc
-
-            # 5xx / network — check if order already exists before retrying
-            logger.warning(
-                "Food order 5xx on attempt %d/%d: %s", attempt + 1, MAX_RETRIES, exc
-            )
-            recent_orders = await mcp_client.get_food_orders(token=token)
-            found = _order_placed_recently(recent_orders)
-            if found:
-                order_id = found.get("orderId", "recovered")
+                order_id = result.get("orderId", "")
                 await _store_order_reference(session_id, "food", order_id)
-                logger.info(
-                    "Food order recovered from get_food_orders: %s (session %s)",
-                    order_id, session_id,
-                )
+                logger.info("Food order placed: %s (session %s)", order_id, session_id)
                 return ConfirmResponse(
                     order_id=order_id,
                     vertical="food",  # type: ignore[arg-type]
-                    eta=found.get("eta"),
-                    status=found.get("status", "placed"),
+                    eta=result.get("eta"),
+                    status=result.get("status", "placed"),
                 )
 
-            if attempt < MAX_RETRIES:
-                await _wait_with_jitter(attempt)
+            except MCPToolError as exc:
+                # Domain failure (success=false) — do NOT retry, surface immediately
+                if not exc.classification.is_retryable:
+                    logger.warning(
+                        "Food order domain failure (no retry): %s", exc.classification.bucket
+                    )
+                    raise OrderPlacementError("food", str(exc)) from exc
 
-        except Exception as exc:
-            # Network-level error (httpx.RequestError wrapped in MCPToolError by _call)
-            logger.error("Food order unexpected error attempt %d: %s", attempt + 1, exc)
-            if attempt < MAX_RETRIES:
-                await _wait_with_jitter(attempt)
+                # 5xx / network — check if order already exists before retrying
+                logger.warning(
+                    "Food order 5xx on attempt %d/%d: %s", attempt + 1, MAX_RETRIES, exc
+                )
+                recent_orders = await mcp_client.get_food_orders(token=token)
+                found = _order_placed_recently(recent_orders)
+                if found:
+                    order_id = found.get("orderId", "recovered")
+                    await _store_order_reference(session_id, "food", order_id)
+                    logger.info(
+                        "Food order recovered from get_food_orders: %s (session %s)",
+                        order_id, session_id,
+                    )
+                    return ConfirmResponse(
+                        order_id=order_id,
+                        vertical="food",  # type: ignore[arg-type]
+                        eta=found.get("eta"),
+                        status=found.get("status", "placed"),
+                    )
 
-    # ── Exhausted retries ─────────────────────────────────────────────────
-    await mcp_client.report_error(
-        tool="place_food_order",
-        error_message=f"Order placement failed after {MAX_RETRIES} retries",
-        flow_description="food checkout",
-        tool_context={"session_id": str(session_id)},
-        token=token,
-    )
-    raise OrderPlacementError(
-        "food",
-        f"Could not place Food order after {MAX_RETRIES} attempts. "
-        "Please try again or contact Swiggy support.",
-    )
+                if attempt < MAX_RETRIES:
+                    await _wait_with_jitter(attempt)
+
+            except Exception as exc:
+                # Network-level error (httpx.RequestError wrapped in MCPToolError by _call)
+                logger.error("Food order unexpected error attempt %d: %s", attempt + 1, exc)
+                if attempt < MAX_RETRIES:
+                    await _wait_with_jitter(attempt)
+
+        # ── Exhausted retries ─────────────────────────────────────────────────
+        await mcp_client.report_error(
+            tool="place_food_order",
+            error_message=f"Order placement failed after {MAX_RETRIES} retries",
+            flow_description="food checkout",
+            tool_context={"session_id": str(session_id)},
+            token=token,
+        )
+        raise OrderPlacementError(
+            "food",
+            f"Could not place Food order after {MAX_RETRIES} attempts. "
+            "Please try again or contact Swiggy support.",
+        )
+    finally:
+        _active_placements.discard(lock_key)
 
 
 # ── Instamart checkout ────────────────────────────────────────────────────────
@@ -233,77 +245,85 @@ async def checkout_instamart(session_id: uuid.UUID, token: str = "") -> ConfirmR
     On 5xx → check get_orders → retry up to MAX_RETRIES.
     PRD ref: Section 8.3 (Module 5), Section 7.1
     """
-    # ── Pre-condition: read live cart, verify minimum ─────────────────────
-    cart = await mcp_client.get_cart(token=token)
+    lock_key = f"{session_id}_instamart"
+    if lock_key in _active_placements:
+        raise OrderPlacementError("instamart", "Order placement already in progress.")
+    _active_placements.add(lock_key)
 
-    subtotal = cart.get("subtotal", 0)
-    if subtotal < _INSTAMART_MINIMUM_INR:
-        raise OrderPlacementError(
-            "instamart",
-            f"Cart total ₹{subtotal} is below ₹{_INSTAMART_MINIMUM_INR} minimum. "
-            "Add more items to continue.",
-        )
+    try:
+        # ── Pre-condition: read live cart, verify minimum ─────────────────────
+        cart = await mcp_client.get_cart(token=token)
 
-    items = cart.get("items", [])
-    if not items:
-        raise OrderPlacementError("instamart", "Instamart cart is empty — nothing to order.")
-
-    wall_start = asyncio.get_event_loop().time()
-
-    for attempt in range(MAX_RETRIES + 1):
-        if asyncio.get_event_loop().time() - wall_start > _WALL_CLOCK_CAP_SECONDS:
-            break
-
-        try:
-            result = await mcp_client.checkout(payment_method="COD", token=token)
-            order_id = result.get("orderId", "")
-            await _store_order_reference(session_id, "instamart", order_id)
-            logger.info("Instamart order placed: %s (session %s)", order_id, session_id)
-            return ConfirmResponse(
-                order_id=order_id,
-                vertical="instamart",  # type: ignore[arg-type]
-                eta=result.get("eta"),
-                status=result.get("status", "placed"),
+        subtotal = cart.get("subtotal", 0)
+        if subtotal < _INSTAMART_MINIMUM_INR:
+            raise OrderPlacementError(
+                "instamart",
+                f"Cart total ₹{subtotal} is below ₹{_INSTAMART_MINIMUM_INR} minimum. "
+                "Add more items to continue.",
             )
 
-        except MCPToolError as exc:
-            if not exc.classification.is_retryable:
-                raise OrderPlacementError("instamart", str(exc)) from exc
+        items = cart.get("items", [])
+        if not items:
+            raise OrderPlacementError("instamart", "Instamart cart is empty — nothing to order.")
 
-            logger.warning(
-                "Instamart checkout 5xx attempt %d/%d: %s", attempt + 1, MAX_RETRIES, exc
-            )
-            recent_orders = await mcp_client.get_orders(token=token)
-            found = _order_placed_recently(recent_orders)
-            if found:
-                order_id = found.get("orderId", "recovered")
+        wall_start = asyncio.get_event_loop().time()
+
+        for attempt in range(MAX_RETRIES + 1):
+            if asyncio.get_event_loop().time() - wall_start > _WALL_CLOCK_CAP_SECONDS:
+                break
+
+            try:
+                result = await mcp_client.checkout(payment_method="COD", token=token)
+                order_id = result.get("orderId", "")
                 await _store_order_reference(session_id, "instamart", order_id)
+                logger.info("Instamart order placed: %s (session %s)", order_id, session_id)
                 return ConfirmResponse(
                     order_id=order_id,
                     vertical="instamart",  # type: ignore[arg-type]
-                    eta=found.get("eta"),
-                    status=found.get("status", "placed"),
+                    eta=result.get("eta"),
+                    status=result.get("status", "placed"),
                 )
 
-            if attempt < MAX_RETRIES:
-                await _wait_with_jitter(attempt)
+            except MCPToolError as exc:
+                if not exc.classification.is_retryable:
+                    raise OrderPlacementError("instamart", str(exc)) from exc
 
-        except Exception as exc:
-            logger.error("Instamart checkout unexpected error attempt %d: %s", attempt + 1, exc)
-            if attempt < MAX_RETRIES:
-                await _wait_with_jitter(attempt)
+                logger.warning(
+                    "Instamart checkout 5xx attempt %d/%d: %s", attempt + 1, MAX_RETRIES, exc
+                )
+                recent_orders = await mcp_client.get_orders(token=token)
+                found = _order_placed_recently(recent_orders)
+                if found:
+                    order_id = found.get("orderId", "recovered")
+                    await _store_order_reference(session_id, "instamart", order_id)
+                    return ConfirmResponse(
+                        order_id=order_id,
+                        vertical="instamart",  # type: ignore[arg-type]
+                        eta=found.get("eta"),
+                        status=found.get("status", "placed"),
+                    )
 
-    await mcp_client.report_error(
-        tool="checkout",
-        error_message=f"Instamart checkout failed after {MAX_RETRIES} retries",
-        flow_description="instamart checkout",
-        tool_context={"session_id": str(session_id)},
-        token=token,
-    )
-    raise OrderPlacementError(
-        "instamart",
-        f"Could not place Instamart order after {MAX_RETRIES} attempts.",
-    )
+                if attempt < MAX_RETRIES:
+                    await _wait_with_jitter(attempt)
+
+            except Exception as exc:
+                logger.error("Instamart checkout unexpected error attempt %d: %s", attempt + 1, exc)
+                if attempt < MAX_RETRIES:
+                    await _wait_with_jitter(attempt)
+
+        await mcp_client.report_error(
+            tool="checkout",
+            error_message=f"Instamart checkout failed after {MAX_RETRIES} retries",
+            flow_description="instamart checkout",
+            tool_context={"session_id": str(session_id)},
+            token=token,
+        )
+        raise OrderPlacementError(
+            "instamart",
+            f"Could not place Instamart order after {MAX_RETRIES} attempts.",
+        )
+    finally:
+        _active_placements.discard(lock_key)
 
 
 # ── Dineout table booking ─────────────────────────────────────────────────────
@@ -330,85 +350,93 @@ async def book_table_dineout(
     On 5xx → check get_booking_status → retry up to MAX_RETRIES.
     PRD ref: Section 8.3 (Module 5), Section 7.2 (Dineout flow)
     """
-    # ── Pre-condition: reject paid slots before any network call ──────────
-    if not slot_is_free or booking_price > 0:
+    lock_key = f"{session_id}_dineout"
+    if lock_key in _active_placements:
+        raise OrderPlacementError("dineout", "Reservation already in progress.")
+    _active_placements.add(lock_key)
+
+    try:
+        # ── Pre-condition: reject paid slots before any network call ──────────
+        if not slot_is_free or booking_price > 0:
+            raise OrderPlacementError(
+                "dineout",
+                "Only free reservations are supported in this version "
+                f"(slot bookingPrice=₹{booking_price}). "
+                "Please choose a free slot.",
+            )
+
+        wall_start = asyncio.get_event_loop().time()
+        last_booking_id: str | None = None
+
+        for attempt in range(MAX_RETRIES + 1):
+            if asyncio.get_event_loop().time() - wall_start > _WALL_CLOCK_CAP_SECONDS:
+                break
+
+            try:
+                result = await mcp_client.book_table(
+                    restaurant_id=restaurant_id,
+                    slot_id=slot_id,
+                    item_id=item_id,
+                    reservation_time=reservation_time,
+                    guest_count=guest_count,
+                    latitude=latitude,
+                    longitude=longitude,
+                    token=token,
+                )
+                booking_id = result.get("bookingId", "")
+                last_booking_id = booking_id
+                await _store_order_reference(session_id, "dineout", booking_id)
+                logger.info("Dineout booking confirmed: %s (session %s)", booking_id, session_id)
+                return ConfirmResponse(
+                    order_id=booking_id,
+                    vertical="dineout",  # type: ignore[arg-type]
+                    eta=result.get("reservationTime"),
+                    status=result.get("status", "confirmed"),
+                )
+
+            except MCPToolError as exc:
+                if not exc.classification.is_retryable:
+                    raise OrderPlacementError("dineout", str(exc)) from exc
+
+                logger.warning(
+                    "Dineout book_table 5xx attempt %d/%d: %s", attempt + 1, MAX_RETRIES, exc
+                )
+
+                # Check if booking was created despite 5xx response
+                if last_booking_id:
+                    try:
+                        status_result = await mcp_client.get_booking_status(
+                            last_booking_id, token=token
+                        )
+                        if status_result.get("status", "").upper() in ("CONFIRMED", "PLACED"):
+                            await _store_order_reference(session_id, "dineout", last_booking_id)
+                            return ConfirmResponse(
+                                order_id=last_booking_id,
+                                vertical="dineout",  # type: ignore[arg-type]
+                                eta=status_result.get("reservationTime"),
+                                status="confirmed",
+                            )
+                    except Exception:
+                        pass  # Status check failed — proceed to retry
+
+                if attempt < MAX_RETRIES:
+                    await _wait_with_jitter(attempt)
+
+            except Exception as exc:
+                logger.error("Dineout booking unexpected error attempt %d: %s", attempt + 1, exc)
+                if attempt < MAX_RETRIES:
+                    await _wait_with_jitter(attempt)
+
+        await mcp_client.report_error(
+            tool="book_table",
+            error_message=f"Dineout booking failed after {MAX_RETRIES} retries",
+            flow_description="dineout reservation",
+            tool_context={"session_id": str(session_id), "restaurantId": restaurant_id},
+            token=token,
+        )
         raise OrderPlacementError(
             "dineout",
-            "Only free reservations are supported in this version "
-            f"(slot bookingPrice=₹{booking_price}). "
-            "Please choose a free slot.",
+            f"Could not complete Dineout reservation after {MAX_RETRIES} attempts.",
         )
-
-    wall_start = asyncio.get_event_loop().time()
-    last_booking_id: str | None = None
-
-    for attempt in range(MAX_RETRIES + 1):
-        if asyncio.get_event_loop().time() - wall_start > _WALL_CLOCK_CAP_SECONDS:
-            break
-
-        try:
-            result = await mcp_client.book_table(
-                restaurant_id=restaurant_id,
-                slot_id=slot_id,
-                item_id=item_id,
-                reservation_time=reservation_time,
-                guest_count=guest_count,
-                latitude=latitude,
-                longitude=longitude,
-                token=token,
-            )
-            booking_id = result.get("bookingId", "")
-            last_booking_id = booking_id
-            await _store_order_reference(session_id, "dineout", booking_id)
-            logger.info("Dineout booking confirmed: %s (session %s)", booking_id, session_id)
-            return ConfirmResponse(
-                order_id=booking_id,
-                vertical="dineout",  # type: ignore[arg-type]
-                eta=result.get("reservationTime"),
-                status=result.get("status", "confirmed"),
-            )
-
-        except MCPToolError as exc:
-            if not exc.classification.is_retryable:
-                raise OrderPlacementError("dineout", str(exc)) from exc
-
-            logger.warning(
-                "Dineout book_table 5xx attempt %d/%d: %s", attempt + 1, MAX_RETRIES, exc
-            )
-
-            # Check if booking was created despite 5xx response
-            if last_booking_id:
-                try:
-                    status_result = await mcp_client.get_booking_status(
-                        last_booking_id, token=token
-                    )
-                    if status_result.get("status", "").upper() in ("CONFIRMED", "PLACED"):
-                        await _store_order_reference(session_id, "dineout", last_booking_id)
-                        return ConfirmResponse(
-                            order_id=last_booking_id,
-                            vertical="dineout",  # type: ignore[arg-type]
-                            eta=status_result.get("reservationTime"),
-                            status="confirmed",
-                        )
-                except Exception:
-                    pass  # Status check failed — proceed to retry
-
-            if attempt < MAX_RETRIES:
-                await _wait_with_jitter(attempt)
-
-        except Exception as exc:
-            logger.error("Dineout booking unexpected error attempt %d: %s", attempt + 1, exc)
-            if attempt < MAX_RETRIES:
-                await _wait_with_jitter(attempt)
-
-    await mcp_client.report_error(
-        tool="book_table",
-        error_message=f"Dineout booking failed after {MAX_RETRIES} retries",
-        flow_description="dineout reservation",
-        tool_context={"session_id": str(session_id), "restaurantId": restaurant_id},
-        token=token,
-    )
-    raise OrderPlacementError(
-        "dineout",
-        f"Could not complete Dineout reservation after {MAX_RETRIES} attempts.",
-    )
+    finally:
+        _active_placements.discard(lock_key)
