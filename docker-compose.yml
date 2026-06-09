@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vertexcart_db
+    environment:
+      POSTGRES_USER: vertexcart
+      POSTGRES_PASSWORD: vertexcart
+      POSTGRES_DB: vertexcart
+    ports:
+      - "5432:5432"
+    volumes:
+      - vertexcart_pgdata:/var/lib/postgresql/data
+      - ./app/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vertexcart"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  vertexcart_pgdata:
