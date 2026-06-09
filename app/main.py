@@ -19,7 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.db.connection import close_pool, init_pool
+from app.db.connection import close_pool, create_pool
 from app.core.mcp_client import mcp_client
 from app.api.routes import auth, cart, confirm, intent, orders, session, turn
 
@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     logger.info("MCP HTTP clients initialised")
 
     try:
-        await init_pool()
+        await create_pool()
         logger.info("Database pool initialised")
     except Exception as exc:
         logger.error("Database connection failed on startup: %s", exc)
