@@ -1,18 +1,20 @@
+"use client";
+
 import React from "react";
 import { CartItem } from "../lib/types";
 import { Clock, MapPin } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface CartColumnProps {
   vertical: "instamart" | "food" | "dineout";
   title: string;
   items: CartItem[];
-  total: number; // mapped from subtotal in parent
+  total: number;
   eta?: string;
   restaurantName?: string;
-  colorClass: string;
-  borderColorClass: string;
-  accentBgClass: string;
+  accentColor: string;
+  accentBg: string;
+  accentBorder: string;
   animateX: number;
 }
 
@@ -23,47 +25,76 @@ export function CartColumn({
   total,
   eta,
   restaurantName,
-  colorClass,
-  borderColorClass,
-  accentBgClass,
-  animateX
+  accentColor,
+  accentBg,
+  accentBorder,
+  animateX,
 }: CartColumnProps) {
+  const icons = { instamart: "🛒", food: "🍔", dineout: "🍽️" };
+
   return (
     <motion.div
-      initial={{ opacity: 0, x: animateX }}
-      animate={{ opacity: 1, x: 0 }}
-      className="flex-1"
+      initial={{ opacity: 0, x: animateX, scale: 0.97 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: animateX, scale: 0.95 }}
+      transition={{ type: "spring", stiffness: 280, damping: 22 }}
+      className="flex-1 rounded-2xl overflow-hidden"
+      style={{ background: accentBg, border: `1px solid ${accentBorder}` }}
     >
-      <div className={`flex items-center gap-2 mb-4 border-b ${borderColorClass} pb-2`}>
-        <div className={`w-3 h-3 rounded-full ${colorClass}`}></div>
-        <h2 className="font-bold text-text-primary">{title}</h2>
+      {/* Column header */}
+      <div className="px-5 pt-4 pb-3 flex items-center justify-between" style={{ borderBottom: `1px solid ${accentBorder}` }}>
+        <div className="flex items-center gap-2.5">
+          <span className="text-xl">{icons[vertical]}</span>
+          <div>
+            <h2 className="font-bold text-text-primary text-sm">{title}</h2>
+            {restaurantName && (
+              <div className="flex items-center gap-1 mt-0.5">
+                <MapPin className="w-3 h-3" style={{ color: accentColor }} />
+                <span className="text-xs text-text-secondary">{restaurantName}</span>
+              </div>
+            )}
+          </div>
+        </div>
         {eta && (
-          <span className={`ml-auto text-xs ${accentBgClass} ${colorClass.replace('bg-', 'text-')} px-2 py-1 rounded-full flex items-center gap-1 font-medium`}>
-            <Clock className="w-3 h-3" /> {eta}
-          </span>
+          <div
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl"
+            style={{ color: accentColor, background: `${accentColor}15` }}
+          >
+            <Clock className="w-3 h-3" />
+            {eta}
+          </div>
         )}
       </div>
-      
-      {vertical === "food" && restaurantName && (
-        <div className="mb-3 text-sm text-text-secondary flex items-center gap-1 font-medium bg-surface-elevated px-3 py-2 rounded-lg">
-          <MapPin className="w-4 h-4" /> From: {restaurantName}
-        </div>
-      )}
 
-      <div className="space-y-3">
-        {items.map((item, i) => (
-          <div key={i} className="bg-surface p-4 rounded-xl border border-border-color flex justify-between shadow-sm hover:shadow transition-shadow">
-            <div>
-              <div className="text-text-primary text-sm font-semibold">{item.name}</div>
-              <div className="text-text-secondary text-xs mt-1 font-medium bg-surface-elevated inline-block px-2 py-0.5 rounded">Qty: {item.quantity}</div>
-            </div>
-            <div className="text-text-primary font-semibold text-sm">₹{item.price}</div>
-          </div>
-        ))}
-        <div className="pt-4 mt-2 border-t border-border-color flex justify-between font-bold text-lg">
-          <span className="text-text-secondary">Subtotal</span>
-          <span className="text-text-primary">₹{total}</span>
-        </div>
+      {/* Items */}
+      <div className="p-4 space-y-2.5">
+        <AnimatePresence mode="popLayout">
+          {items.map((item, i) => (
+            <motion.div
+              key={`${item.name}-${i}`}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8, height: 0 }}
+              transition={{ type: "spring", stiffness: 350, damping: 25, delay: i * 0.05 }}
+              className="flex items-center justify-between bg-background/60 rounded-xl px-4 py-3 border border-border-color/50"
+            >
+              <div className="flex-1 min-w-0 pr-3">
+                <div className="text-text-primary text-sm font-semibold truncate">{item.name}</div>
+                <div className="text-text-secondary text-xs mt-0.5">Qty: {item.quantity}</div>
+              </div>
+              <span className="text-text-primary text-sm font-bold shrink-0">₹{item.price * item.quantity}</span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* Subtotal footer */}
+      <div
+        className="mx-4 mb-4 px-4 py-3 rounded-xl flex justify-between items-center"
+        style={{ background: `${accentColor}12`, border: `1px solid ${accentBorder}` }}
+      >
+        <span className="text-text-secondary text-sm font-semibold">Subtotal</span>
+        <span className="font-black text-base text-text-primary">₹{total}</span>
       </div>
     </motion.div>
   );

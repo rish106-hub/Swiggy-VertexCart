@@ -1,7 +1,7 @@
 // Matches backend model: app/models/intent.py
 export interface Entity {
   text: string;
-  type: "ingredient" | "ready_to_eat" | "reservation";
+  type: "ingredient" | "ready_to_eat" | "reservation" | "reorder";
   vertical: "instamart" | "food" | "dineout";
   confidence: number;
 }
