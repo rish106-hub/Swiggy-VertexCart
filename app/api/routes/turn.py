@@ -5,16 +5,43 @@ POST /api/v1/session/{session_id}/turn — process one conversation turn.
 PRD ref: Section 8.3 (Module 3, FastAPI Endpoints), Section 7.4 (turn boundary pattern)
 
 Orchestration flow per turn:
-  1.  Parse intent from user text
-  2.  If clarification needed → return clarifying question immediately (no tool calls)
-  3.  Persist user turn in conversation history
-  4.  Turn boundary: read live carts for active + newly detected verticals
-  5.  Detect restaurant switch (Food) → return warning if cart would be flushed
-  6.  Detect address switch (Instamart) → return warning if clear_cart needed
-  7.  Detect scheduled delivery intent → inform user not supported in v1
-  8.  Call discovery + cart tools based on intent entities
-  9.  Persist agent turn with tools_called metadata
-  10. Return TurnResponse with agent message, cart summary, active verticals
+
+  User Input
+      │
+      ▼
+  ┌───────────────────────┐
+  │ 1. Intent Parser      │   (Extracts entities, assigns verticals, detects signals)
+  └─────────┬─────────────┘
+            │
+            ▼ (requires_clarification?)
+      [Yes] ├──► Return Clarifying Question (Stop)
+      [No]  │
+            ▼
+  ┌───────────────────────┐
+  │ 3. Persist User Turn  │   (Save to conversation_turns table)
+  └─────────┬─────────────┘
+            │
+            ▼
+  ┌───────────────────────┐
+  │ 4. Turn Boundary      │   (Read live carts from Swiggy servers: get_*_cart)
+  └─────────┬─────────────┘
+            │
+            ▼ (Switch detected?)
+      [Yes] ├──► Return Warning to User (Stop, wait for confirmation)
+      [No]  │
+            ▼
+  ┌───────────────────────┐
+  │ 8. Discovery & Cart   │   (Run search and update_*_cart tools per vertical)
+  │    (Degradation Mode) │   (If one fails, others continue)
+  └─────────┬─────────────┘
+            │
+            ▼
+  ┌───────────────────────┐
+  │ 9. Persist Agent Turn │   (Save response and tools_called metadata)
+  └─────────┬─────────────┘
+            │
+            ▼
+  Return TurnResponse         (agent_message, cart_summary, active_verticals)
 """
 
 import logging
@@ -47,6 +74,7 @@ def _build_agent_message(
     intent: IntentResult,
     discovery_results: dict[str, Any],
     cart_state: dict[str, Any],
+    failed_verticals: list[str],
 ) -> str:
     """
     Build a plain-text agent response from discovery results.
@@ -54,6 +82,13 @@ def _build_agent_message(
     For now: structured template sufficient for end-to-end smoke testing.
     """
     parts: list[str] = []
+
+    if "instamart" in failed_verticals:
+        parts.append("I couldn't reach Instamart right now, but your other requests are ready.")
+    if "food" in failed_verticals:
+        parts.append("I couldn't reach Food right now, but your other requests are ready.")
+    if "dineout" in failed_verticals:
+        parts.append("I couldn't reach Dineout right now, but your other requests are ready.")
 
     food_items = discovery_results.get("food_search", [])
     im_products = discovery_results.get("instamart_search", [])
@@ -66,10 +101,10 @@ def _build_agent_message(
         names = ", ".join(p.get("name", "product") for p in im_products[:3])
         parts.append(f"Found on Instamart: {names}.")
 
-    if intent.dineout_signal:
+    if intent.dineout_signal and "dineout" not in failed_verticals:
         parts.append("Searching Dineout for available slots.")
 
-    if not parts:
+    if not parts or parts == [f"I couldn't reach {v} right now, but your other requests are ready." for v in failed_verticals]:
         parts.append("I've updated your cart. Shall I proceed to checkout?")
 
     food_cart = cart_state.get("food", {})
@@ -340,6 +375,7 @@ async def process_turn(session_id: uuid.UUID, body: TurnRequest) -> TurnResponse
     # ── Step 8: Run discovery + cart tools ───────────────────────────────
     tools_called: list[dict] = []
     discovery_results: dict[str, Any] = {}
+    failed_verticals: list[str] = []
 
     # Food
     if food_entities:
@@ -373,6 +409,7 @@ async def process_turn(session_id: uuid.UUID, body: TurnRequest) -> TurnResponse
                     },
                 })
             except MCPToolError as exc:
+                failed_verticals.append("food")
                 logger.warning("update_food_cart failed: %s", exc)
                 await mcp_client.report_error(
                     tool="update_food_cart",
@@ -418,6 +455,7 @@ async def process_turn(session_id: uuid.UUID, body: TurnRequest) -> TurnResponse
                     "arguments": {"items": spin_items},
                 })
             except MCPToolError as exc:
+                failed_verticals.append("instamart")
                 logger.warning("update_cart failed: %s", exc)
                 await mcp_client.report_error(
                     tool="update_cart",
@@ -434,6 +472,10 @@ async def process_turn(session_id: uuid.UUID, body: TurnRequest) -> TurnResponse
         restaurants_dout, free_slots = await _run_dineout_discovery(
             dineout_lat, dineout_lng, query, today_str, token
         )
+        
+        if not restaurants_dout and not free_slots:
+            failed_verticals.append("dineout")
+            
         discovery_results["dineout_restaurants"] = restaurants_dout
         discovery_results["dineout_slots"] = free_slots
         tools_called.append({
@@ -444,7 +486,7 @@ async def process_turn(session_id: uuid.UUID, body: TurnRequest) -> TurnResponse
         })
 
     # ── Step 9: Persist agent turn ────────────────────────────────────────
-    agent_message = _build_agent_message(intent, discovery_results, cart_state)
+    agent_message = _build_agent_message(intent, discovery_results, cart_state, failed_verticals)
     await add_turn(session_id, "agent", agent_message, tools_called=tools_called)
 
     # ── Step 10: Return response ──────────────────────────────────────────
