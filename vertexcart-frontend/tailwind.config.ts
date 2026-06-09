@@ -17,6 +17,7 @@ const config: Config = {
         "swiggy-orange": "var(--swiggy-orange)",
         "instamart-green": "var(--instamart-green)",
         "dineout-purple": "var(--dineout-purple)",
+        "border-color": "var(--border-color)",
       },
       backgroundImage: {
         "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",

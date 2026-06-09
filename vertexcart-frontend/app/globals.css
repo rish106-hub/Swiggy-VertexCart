@@ -3,14 +3,15 @@
 @tailwind utilities;
 
 :root {
-  --background: #0D0D0D;
-  --surface: #1A1A1A;
-  --surface-elevated: #242424;
-  --text-primary: #FFFFFF;
-  --text-secondary: #A0A0A0;
+  --background: #F4F4F5;
+  --surface: #FFFFFF;
+  --surface-elevated: #F9FAFB;
+  --text-primary: #1F2937;
+  --text-secondary: #6B7280;
   --swiggy-orange: #FF5200;
   --instamart-green: #00B383;
   --dineout-purple: #8B5CF6;
+  --border-color: #E5E7EB;
 }
 
 body {
@@ -20,7 +21,7 @@ body {
   overflow-x: hidden;
 }
 
-/* Custom Scrollbar for dark theme */
+/* Custom Scrollbar for light theme */
 ::-webkit-scrollbar {
   width: 8px;
 }
@@ -30,7 +31,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-elevated);
+  background: var(--border-color);
   border-radius: 4px;
 }
 

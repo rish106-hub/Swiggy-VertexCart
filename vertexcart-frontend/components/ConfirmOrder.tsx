@@ -86,49 +86,51 @@ export function ConfirmOrder({ cart, onConfirm, onAllConfirmed }: ConfirmOrderPr
   if (!details) return null;
 
   return (
-    <div className="fixed inset-0 bg-background z-50 flex flex-col items-center pt-20 px-4">
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex flex-col items-center pt-24 px-4">
       <div className="absolute top-6 right-6">
         <PoweredBySwiggy />
       </div>
       
-      <div className="text-text-secondary text-sm mb-8">
+      <div className="text-text-secondary text-sm font-semibold uppercase tracking-wider mb-6 bg-surface px-4 py-2 rounded-full border border-border-color shadow-sm">
         Step {currentIndex + 1} of {verticalsToConfirm.length}
       </div>
 
       <AnimatePresence mode="wait">
         <motion.div
           key={currentVertical}
-          initial={{ opacity: 0, x: 50 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -50 }}
-          className="w-full max-w-md bg-surface border border-surface-elevated rounded-2xl p-6"
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -20, scale: 0.95 }}
+          transition={{ duration: 0.2 }}
+          className="w-full max-w-md bg-white border border-border-color rounded-3xl p-8 shadow-xl"
         >
-          <h2 className={`text-2xl font-bold mb-6 ${details.text}`}>{details.title}</h2>
+          <h2 className={`text-2xl font-extrabold mb-8 pb-4 border-b border-border-color ${details.text}`}>{details.title}</h2>
           
-          <div className="space-y-4 mb-8 max-h-60 overflow-y-auto pr-2">
+          <div className="space-y-4 mb-8 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
              {details.items.map((item, i) => (
-                <div key={i} className="flex justify-between items-center text-white text-sm">
-                  <span>{item.quantity}x {item.name}</span>
-                  <span>₹{item.price}</span>
+                <div key={i} className="flex justify-between items-center text-text-primary text-sm font-medium bg-surface-elevated p-3 rounded-xl border border-border-color/50">
+                  <span><span className="text-text-secondary mr-2">{item.quantity}x</span> {item.name}</span>
+                  <span className="font-bold">₹{item.price}</span>
                 </div>
              ))}
           </div>
 
-          <div className="border-t border-surface-elevated pt-4 mb-6">
-             <div className="flex justify-between items-center text-lg font-bold text-white mb-2">
+          <div className="border-t border-border-color pt-6 mb-8">
+             <div className="flex justify-between items-center text-xl font-extrabold text-text-primary mb-3">
                 <span>Total (COD)</span>
                 <span>₹{details.total}</span>
              </div>
              {details.warnings && (
-               <div className="text-xs text-text-secondary flex items-start gap-1">
-                 <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+               <div className="text-xs text-text-secondary flex items-start gap-1.5 bg-surface-elevated p-2 rounded-lg font-medium">
+                 <AlertCircle className="w-4 h-4 mt-px shrink-0 text-amber-500" />
                  {details.warnings}
                </div>
              )}
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm font-medium flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 shrink-0" />
               {error}
             </div>
           )}
@@ -136,7 +138,7 @@ export function ConfirmOrder({ cart, onConfirm, onAllConfirmed }: ConfirmOrderPr
           <button
             onClick={handleConfirm}
             disabled={isConfirming || (currentVertical === 'food' && details.total > 1000) || (currentVertical === 'instamart' && details.total < 99)}
-            className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 text-white disabled:opacity-50 transition-opacity ${details.color}`}
+            className={`w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 text-white disabled:opacity-50 transition-all shadow-md hover:shadow-lg active:scale-95 ${details.color}`}
           >
             {isConfirming ? (
               <>Placing Order <Loader2 className="w-5 h-5 animate-spin" /></>

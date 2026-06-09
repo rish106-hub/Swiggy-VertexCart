@@ -71,17 +71,18 @@ export function CartPreview({ cart, intent, agentResponse, onCorrect, onConfirmS
         </div>
         
         {/* Bottom CTA Area */}
-        <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-surface-elevated p-4 flex justify-center z-20">
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-border-color p-4 flex justify-center z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
            <div className="max-w-7xl w-full flex flex-col md:flex-row items-center justify-between px-4 md:px-8 gap-4">
-              <div className="text-text-secondary text-sm">
+              <div className="text-text-secondary text-sm font-medium flex items-center gap-2">
+                 <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
                  Live cart data from Swiggy
               </div>
               {agentResponse.requires_confirmation && (
                 <button
                   onClick={onConfirmStart}
-                  className="px-8 py-3 bg-white text-black font-semibold rounded-full hover:bg-gray-200 transition-colors flex items-center gap-2"
+                  className="px-8 py-4 bg-swiggy-orange text-white font-bold rounded-full hover:bg-orange-600 transition-colors flex items-center gap-2 shadow-md hover:shadow-lg active:scale-95"
                 >
-                   Review & Confirm Orders <CheckCircle className="w-4 h-4" />
+                   Review & Confirm Orders <CheckCircle className="w-5 h-5" />
                 </button>
               )}
            </div>

@@ -36,33 +36,33 @@ export function CartColumn({
     >
       <div className={`flex items-center gap-2 mb-4 border-b ${borderColorClass} pb-2`}>
         <div className={`w-3 h-3 rounded-full ${colorClass}`}></div>
-        <h2 className="font-semibold text-white">{title}</h2>
+        <h2 className="font-bold text-text-primary">{title}</h2>
         {eta && (
-          <span className={`ml-auto text-xs ${accentBgClass} ${colorClass.replace('bg-', 'text-')} px-2 py-1 rounded-full flex items-center gap-1`}>
+          <span className={`ml-auto text-xs ${accentBgClass} ${colorClass.replace('bg-', 'text-')} px-2 py-1 rounded-full flex items-center gap-1 font-medium`}>
             <Clock className="w-3 h-3" /> {eta}
           </span>
         )}
       </div>
       
       {vertical === "food" && restaurantName && (
-        <div className="mb-3 text-sm text-text-secondary flex items-center gap-1">
-          <MapPin className="w-3 h-3" /> From: {restaurantName}
+        <div className="mb-3 text-sm text-text-secondary flex items-center gap-1 font-medium bg-surface-elevated px-3 py-2 rounded-lg">
+          <MapPin className="w-4 h-4" /> From: {restaurantName}
         </div>
       )}
 
       <div className="space-y-3">
         {items.map((item, i) => (
-          <div key={i} className="bg-surface p-3 rounded-lg border border-surface-elevated flex justify-between">
+          <div key={i} className="bg-surface p-4 rounded-xl border border-border-color flex justify-between shadow-sm hover:shadow transition-shadow">
             <div>
-              <div className="text-white text-sm font-medium">{item.name}</div>
-              <div className="text-text-secondary text-xs mt-1">Qty: {item.quantity}</div>
+              <div className="text-text-primary text-sm font-semibold">{item.name}</div>
+              <div className="text-text-secondary text-xs mt-1 font-medium bg-surface-elevated inline-block px-2 py-0.5 rounded">Qty: {item.quantity}</div>
             </div>
-            <div className="text-white text-sm">₹{item.price}</div>
+            <div className="text-text-primary font-semibold text-sm">₹{item.price}</div>
           </div>
         ))}
-        <div className="pt-2 border-t border-surface-elevated flex justify-between font-medium">
+        <div className="pt-4 mt-2 border-t border-border-color flex justify-between font-bold text-lg">
           <span className="text-text-secondary">Subtotal</span>
-          <span className="text-white">₹{total}</span>
+          <span className="text-text-primary">₹{total}</span>
         </div>
       </div>
     </motion.div>
