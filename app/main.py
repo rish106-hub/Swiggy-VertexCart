@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.db.connection import close_pool, init_pool
+from app.core.mcp_client import mcp_client
 from app.api.routes import auth, cart, confirm, intent, orders, session, turn
 
 logger = logging.getLogger(__name__)
@@ -77,20 +78,24 @@ async def log_requests(request: Request, call_next):
 @app.on_event("startup")
 async def on_startup():
     """Verify DB connectivity on startup. Fail fast if unreachable."""
+    await mcp_client.start()
+    logger.info("MCP HTTP clients initialised")
+
     try:
         await init_pool()
         logger.info("Database pool initialised")
     except Exception as exc:
         logger.error("Database connection failed on startup: %s", exc)
-        # Don't crash in mock mode — DB writes are no-ops until Sprint 5/6
+        # Don't crash in mock mode — DB writes are no-ops until Sprint 6
         if not settings.mock_mode:
             raise
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    await mcp_client.stop()
     await close_pool()
-    logger.info("Database pool closed")
+    logger.info("MCP clients and database pool closed")
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
